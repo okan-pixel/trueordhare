@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Truth or Dare · Meja Bar Online</title>
+<style>
+:root{--red:#b3122e;--red2:#6e0819;--gold:#e0b15a;--text:#f3ece9}
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;background:radial-gradient(circle at 50% 25%,#2a0509 0%,#000 75%);color:var(--text);font-family:system-ui,-apple-system,sans-serif;display:flex;justify-content:center;padding:16px}
+#app{width:100%;max-width:440px}
+h1{font-size:1.3rem;text-align:center;color:var(--gold);letter-spacing:3px;margin-bottom:12px;text-transform:uppercase}
+.card{background:rgba(18,18,20,.92);border:1px solid #3a0d14;border-radius:16px;padding:16px;margin-bottom:12px}
+.msg{text-align:center;color:var(--gold);font-size:.9rem;margin-bottom:8px;min-height:1em}
+.label{text-align:center;font-size:.95rem;margin:4px 0 8px;color:#d9c9c4}
+.small{font-size:.8rem;color:#888}
+.code{font-size:2rem;letter-spacing:8px;text-align:center;color:var(--gold);font-weight:700;margin:8px 0}
+.code-small{text-align:center;color:#888;font-size:.8rem;margin-bottom:4px}
+button{display:block;width:100%;background:linear-gradient(#c3152f,var(--red2));color:#fff;border:0;border-radius:12px;padding:12px;font-size:1rem;font-weight:600;cursor:pointer;margin-top:8px}
+button.alt{background:#1c1c20;border:1px solid var(--gold);color:var(--gold)}
+button:disabled{opacity:.4}
+.link{background:none;border:0;color:#777;font-size:.8rem;margin:4px 0 0;padding:4px;width:auto;display:inline-block}
+input,textarea{width:100%;background:#111;border:1px solid #444;color:var(--text);border-radius:10px;padding:10px;font-size:1rem;margin-top:6px}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+.prompt{background:#1a0307;border:1px dashed var(--gold);border-radius:12px;padding:14px;margin:10px 0;text-align:center;font-size:1.05rem;line-height:1.4}
+.table{position:relative;width:100%;aspect-ratio:1;margin:6px auto 4px;border-radius:50%;background:radial-gradient(circle,#2b0a10 0%,#140305 70%);border:6px solid #3a0d14;box-shadow:inset 0 0 40px #000,0 0 30px rgba(179,18,46,.35)}
+.seat{position:absolute;width:70px;transform:translate(-50%,-50%);text-align:center;transition:.3s;opacity:.85}
+.seat.active{opacity:1;filter:drop-shadow(0 0 8px var(--gold))}
+.seat.me{cursor:pointer}
+.bubble{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#fff;border-radius:14px;padding:4px 8px;font-size:1.3rem;margin-bottom:6px;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;animation:pop .2s ease-out}
+@keyframes pop{from{transform:translate(-50%,6px) scale(.6);opacity:0}to{transform:translate(-50%,0) scale(1);opacity:1}}
+.emo{display:flex;gap:6px}
+.emo button{margin-top:0;padding:8px 0;font-size:1.5rem}
+.head{width:22px;height:22px;border-radius:50%;margin:0 auto}
+.body{width:40px;height:20px;border-radius:20px 20px 4px 4px;margin:2px auto 0}
+.nm{font-size:.7rem;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.coin{font-size:.65rem;color:var(--gold)}
+#wheel{position:absolute;left:50%;top:50%;width:52%;height:52%;transform:translate(-50%,-50%);border-radius:50%}
+.ptr{position:absolute;left:50%;top:calc(50% - 26% - 10px);transform:translateX(-50%);width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-top:18px solid var(--gold);z-index:2}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
+import { getDatabase, ref, set, get, update, push, remove, onValue, onChildAdded, onDisconnect } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-database.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyCny2PNe7IjKGHQ7hGsX0PchW8BTOq6lso",
+  authDomain: "true-or-der.firebaseapp.com",
+  databaseURL: "https://true-or-der-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "true-or-der",
+  storageBucket: "true-or-der.firebasestorage.app",
+  messagingSenderId: "363736526926",
+  appId: "1:363736526926:web:ba59f9f190853362dd931f"
+});
+const db = getDatabase(app);
+
+const COLORS=['#ff3b4d','#f5f5f5','#e0b15a','#9b5cff','#2ecc71','#3498db','#ff8a3d','#ff6fb5'];
+const TWO=Math.PI*2;
+const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let myId=localStorage.getItem('tod_id');
+if(!myId){ myId=Math.random().toString(36).slice(2,10); localStorage.setItem('tod_id',myId); }
+
+let code=null, R=null, P=[], wheelIds=null, angle=0, lastSpinId=null, spinning=false, pickedType='', targetsOpen=false;
+let localStream=null, muted=false, pcs={}, pendingIce={}, voiceMembers={}, sigListening=false;
+const EMOJIS=['👍🏻','😭','🗿','🔥','😢'];
+let bubbles={}, reactsSeen=null, pickerOpen=false;
+const rr=()=>ref(db,'rooms/'+code);
+const byId=id=>P.find(p=>p.id===id);
+
+/* ---------- home ---------- */
+function showHome(){
+  $('app').innerHTML=`<h1>Meja Bar</h1><div class="card">
+    <input id="nm" placeholder="Nama kamu" value="${esc(localStorage.getItem('tod_name')||'')}">
+    <button id="mk">🍸 Buat room baru</button>
+    <p class="label">atau</p>
+    <input id="cd" placeholder="Kode room (4 huruf)" maxlength="4">
+    <button id="jn" class="alt">Gabung room</button></div>`;
+  $('mk').onclick=createRoom;
+  $('jn').onclick=joinRoom;
+}
+function getName(){
+  const n=$('nm').value.trim();
+  if(!n){ alert('Isi nama dulu ya'); return null; }
+  localStorage.setItem('tod_name',n);
+  return n;
+}
+function randCode(){
+  const L='ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let s=''; for(let i=0;i<4;i++) s+=L[Math.floor(Math.random()*L.length)];
+  return s;
+}
+async function createRoom(){
+  const name=getName(); if(!name) return;
+  let c;
+  do{ c=randCode(); } while((await get(ref(db,'rooms/'+c))).exists());
+  await set(ref(db,'rooms/'+c),{host:myId,phase:'lobby',msg:'',players:{[myId]:{name,color:COLORS[0],coins:0,order:0}}});
+  enter(c);
+}
+async function joinRoom(){
+  const name=getName(); if(!name) return;
+  const c=$('cd').value.trim().toUpperCase();
+  const snap=await get(ref(db,'rooms/'+c));
+  if(!snap.exists()) return alert('Room tidak ditemukan');
+  const r=snap.val(), players=r.players||{};
+  if(!players[myId]){
+    if(r.phase!=='lobby') return alert('Permainan sudah dimulai');
+    const n=Object.keys(players).length;
+    if(n>=8) return alert('Room sudah penuh (8 pemain)');
+    await update(ref(db,`rooms/${c}/players/${myId}`),{name,color:COLORS[n],coins:0,order:n});
+  }
+  enter(c);
+}
+function enter(c){
+  code=c;
+  onValue(rr(),snap=>{ R=snap.val(); render(); });
+  onValue(ref(db,`rooms/${c}/voice`),snap=>{ voiceMembers=snap.val()||{}; syncPeers(); render(); });
+  onValue(ref(db,`rooms/${c}/reacts`),snap=>handleReacts(snap.val()||{}));
+}
+function handleReacts(v){
+  if(reactsSeen===null){ reactsSeen={}; Object.entries(v).forEach(([id,r])=>reactsSeen[id]=r.t); return; }
+  let changed=false;
+  Object.entries(v).forEach(([id,r])=>{
+    if(reactsSeen[id]===r.t) return;
+    reactsSeen[id]=r.t;
+    bubbles[id]={emoji:r.emoji,until:Date.now()+3000};
+    setTimeout(render,3100);
+    changed=true;
+  });
+  if(changed) render();
+}
+function sendReact(e){
+  set(ref(db,`rooms/${code}/reacts/${myId}`),{emoji:e,t:Date.now()});
+}
+
+/* ---------- render ---------- */
+function render(){
+  if(!R){ $('app').innerHTML='<div class="card"><p class="label">Room sudah tidak ada</p></div>'; return; }
+  P=Object.entries(R.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.order-b.order);
+  if(!byId(myId)){ $('app').innerHTML='<div class="card"><p class="label">Kamu belum ada di room ini</p></div>'; return; }
+  if(R.phase==='lobby') return renderLobby();
+  renderGame();
+}
+function voiceBar(){
+  if(!localStream) return `<div class="card"><button id="vj">🎤 Gabung suara</button><p class="label small">Izinkan mic saat diminta browser</p></div>`;
+  return `<div class="card"><button id="vm" class="alt">${muted?'🔇 Nyalakan mic':'🎙️ Mute mic'}</button><button id="vl" class="alt">Keluar suara</button></div>`;
+}
+function renderLobby(){
+  const isHost=R.host===myId;
+  $('app').innerHTML=`<h1>Lobby</h1>${voiceBar()}<div class="card">
+    <p class="label">Kode room:</p><div class="code">${code}</div>
+    <p class="label">${P.map(p=>`<span style="color:${p.color}">●</span> ${esc(p.name)}`).join('<br>')}</p>
+    ${isHost?`<button id="go" ${P.length<3?'disabled':''}>Mulai (min. 3 pemain)</button>`:'<p class="label">Menunggu host memulai…</p>'}
+  </div>`;
+  if($('go')) $('go').onclick=()=>update(rr(),{phase:'spin_giver',lastSpinner:null,msg:'Permainan dimulai! 🎲'});
+  bindVoice();
+}
+function tableHTML(withWheel){
+  const n=P.length;
+  let h='<div class="table">';
+  P.forEach((p,i)=>{
+    const a=-Math.PI/2+i*TWO/n, x=50+40*Math.cos(a), y=50+40*Math.sin(a);
+    const act=(p.id===R.giver||p.id===R.doer)?' active':'';
+    const b=bubbles[p.id];
+    const bub=(b&&b.until>Date.now())?`<div class="bubble">${b.emoji}</div>`:'';
+    h+=`<div class="seat${act}${p.id===myId?' me':''}" style="left:${x}%;top:${y}%">
+      ${bub}
+      <div class="head" style="background:${p.color}"></div>
+      <div class="body" style="background:${p.color}"></div>
+      <div class="nm">${esc(p.name)}${p.id===myId?' (kamu)':''}${voiceMembers[p.id]?' 🎤':''}</div>
+      <div class="coin">🪙 ${p.coins||0}</div></div>`;
+  });
+  if(withWheel) h+='<canvas id="wheel" width="300" height="300"></canvas><div class="ptr"></div>';
+  return h+'</div>';
+}
+function renderGame(){
+  const ph=R.phase, me=byId(myId), giver=byId(R.giver), doer=byId(R.doer);
+  const isGiver=R.giver===myId, isDoer=R.doer===myId;
+  wheelIds=null;
+  let card='';
+
+  if(ph==='spin_giver'){
+    wheelIds=P.map(p=>p.id);
+    const canSpin=!R.lastSpinner || R.lastSpinner===myId;
+    const who=R.lastSpinner?`Pemutar: <b>${esc(byId(R.lastSpinner)?.name||'')}</b>`:'Semua pemain boleh memutar';
+    card=`<p class="label">${who}</p><p class="label">Roda ini memilih <b>pemberi</b></p>
+      <button id="spin" ${canSpin&&!spinning?'':'disabled'}>🎡 Putar roda</button>`;
+  } else if(ph==='choose'){
+    card=isGiver?`<p class="label"><b>${esc(giver.name)}</b> memberi tantangan. Pilih:</p>
+      <div class="row"><button id="t" class="${pickedType==='Truth'?'':'alt'}">Truth</button><button id="d" class="${pickedType==='Dare'?'':'alt'}">Dare</button></div>
+      <div style="display:${pickedType?'block':'none'}"><button id="idea" class="link">💡 Bingung? Cari ide</button><textarea id="txt" rows="3" placeholder="Tulis pertanyaan / tantangan..."></textarea><button id="send">Kirim ke penerima</button></div>`
+      :`<p class="label">Menunggu <b>${esc(giver.name)}</b> memilih tantangan…</p>`;
+  } else if(ph==='spin_receiver'){
+    wheelIds=P.filter(p=>p.id!==R.giver).map(p=>p.id);
+    card=isGiver?`<p class="label"><b>${esc(giver.name)}</b> memberi <b>${R.type}</b>.</p>
+      <p class="label">Roda ini memilih <b>penerima</b></p>
+      <button id="spin" ${spinning?'disabled':''}>🎯 Putar roda</button>`
+      :`<p class="label">Menunggu roda penerima…</p>`;
+  } else if(ph==='receive'){
+    const canItem=isDoer && !R.thrown && !R.item && (me.coins||0)>=5;
+    card=`<p class="label"><b>${esc(doer.name)}</b> harus menjawab / melakukan ${R.type}:</p>
+      <div class="prompt">${esc(R.prompt)}</div>`;
+    if(isDoer){
+      card+=`<button id="ok">✅ Selesai (+2 koin)</button>
+        <button id="sk" class="alt" ${canItem?'':'disabled'}>⏭️ Skip (−5 koin)</button>
+        <button id="lp" class="alt" ${canItem?'':'disabled'}>🎯 Lempar (−5 koin)</button>
+        ${targetsOpen?'<p class="label">Lempar ke siapa?</p>'+P.filter(p=>p.id!==myId).map(p=>`<button class="alt tg" data-t="${p.id}">${esc(p.name)}</button>`).join(''):''}`;
+    } else {
+      card+=`<p class="label">Menunggu ${esc(doer.name)}…</p>`;
+    }
+  }
+
+  const picker=pickerOpen?`<div class="card"><p class="label">Pilih reaksi:</p><div class="emo">${EMOJIS.map(e=>`<button class="alt" data-e="${e}">${e}</button>`).join('')}</div></div>`:'';
+  const oldTxt=$('txt')?$('txt').value:null;   // simpan ketikan pemberi supaya tidak hilang saat re-render
+  $('app').innerHTML=`<h1>Meja Bar</h1>
+    ${R.msg?`<div class="msg">${esc(R.msg)}</div>`:''}
+    <div class="code-small">Room ${code}</div>
+    ${voiceBar()}
+    ${tableHTML(!!wheelIds)}
+    ${picker}
+    <div class="card">${card}</div>`;
+  if(oldTxt!==null && $('txt')) $('txt').value=oldTxt;
+  bind();
+  document.querySelectorAll('.seat.me').forEach(el=>el.onclick=()=>{pickerOpen=!pickerOpen;render();});
+  document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>{sendReact(b.dataset.e);pickerOpen=false;render();});
+  bindVoice();
+  checkSpin();
+  if(wheelIds) drawWheel(wheelIds);
+}
+
+/* ---------- game actions ---------- */
+function bind(){
+  const on=(id,f)=>{ const el=$(id); if(el) el.onclick=f; };
+  on('spin',doSpin);
+  on('t',()=>{pickedType='Truth';render();});
+  on('d',()=>{pickedType='Dare';render();});
+  on('idea',async()=>{
+    const btn=$('idea'); btn.disabled=true; btn.textContent='💭 Mikir...';
+    try{
+      const res=await fetch('/.netlify/functions/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:pickedType})});
+      const j=await res.json();
+      if(!res.ok) throw new Error(j.error||'gagal');
+      $('txt').value=j.idea;
+    }catch(e){ alert('Ide belum bisa diambil: '+e.message); }
+    finally{ const b=$('idea'); if(b){ b.disabled=false; b.textContent='💡 Bingung? Cari ide'; } }
+  });
+  on('send',()=>{
+    const txt=$('txt').value.trim();
+    if(!txt) return alert('Tulis dulu ya');
+    update(rr(),{phase:'spin_receiver',type:pickedType,prompt:txt});
+    pickedType='';
+  });
+  on('ok',()=>{
+    const d=byId(R.doer);
+    update(rr(),{[`players/${d.id}/coins`]:(d.coins||0)+2,phase:'spin_giver',lastSpinner:R.giver,item:false,thrown:null,doer:null,prompt:'',type:'',msg:`${d.name} berhasil! +2 koin 🪙`});
+  });
+  on('sk',()=>{
+    const d=byId(myId);
+    update(rr(),{[`players/${myId}/coins`]:(d.coins||0)-5,phase:'spin_giver',lastSpinner:R.giver,item:false,thrown:null,doer:null,prompt:'',type:'',msg:`${d.name} pakai Skip, tanpa koin`});
+  });
+  on('lp',()=>{targetsOpen=true;render();});
+  document.querySelectorAll('.tg').forEach(b=>b.onclick=()=>{
+    const me=byId(myId), t=byId(b.dataset.t);
+    targetsOpen=false;
+    update(rr(),{[`players/${myId}/coins`]:(me.coins||0)-5,item:true,thrown:t.id,doer:t.id,msg:`${me.name} melempar ke ${t.name}`});
+  });
+}
+
+async function doSpin(){
+  const ph=R.phase, ids=wheelIds;
+  spinning=true; render();
+  const w=Math.floor(Math.random()*ids.length), seg=TWO/ids.length;
+  const want=((1.5*Math.PI-(w+0.5)*seg)%TWO+TWO)%TWO;
+  let t=angle+4*TWO; t+=((want-(t%TWO))%TWO+TWO)%TWO;
+  await update(rr(),{spin:{id:Date.now()+'-'+myId,list:ids.join(','),target:t}});
+  await new Promise(r=>setTimeout(r,4300));
+  const winner=ids[w];
+  spinning=false;
+  if(ph==='spin_giver') await update(rr(),{phase:'choose',giver:winner,doer:null});
+  else await update(rr(),{phase:'receive',doer:winner});
+}
+
+/* ---------- voice (WebRTC mesh, sinyal lewat Firebase) ---------- */
+function bindVoice(){
+  const on=(id,f)=>{ const el=$(id); if(el) el.onclick=f; };
+  on('vj',joinVoice); on('vm',toggleMute); on('vl',leaveVoice);
+}
+async function joinVoice(){
+  try{
+    localStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){
+    return alert('Mic tidak diizinkan. Izinkan mic di pengaturan browser, lalu coba lagi');
+  }
+  muted=false;
+  await set(ref(db,`rooms/${code}/voice/${myId}`),true);
+  onDisconnect(ref(db,`rooms/${code}/voice/${myId}`)).remove();
+  if(!sigListening){
+    sigListening=true;
+    onChildAdded(ref(db,`rooms/${code}/signals/${myId}`), async snap=>{
+      const m=snap.val();
+      remove(snap.ref);
+      if(m) await handleSignal(m);
+    });
+  }
+  syncPeers();
+  render();
+}
+async function leaveVoice(){
+  Object.keys(pcs).forEach(closePC);
+  if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+  muted=false;
+  await remove(ref(db,`rooms/${code}/voice/${myId}`));
+  render();
+}
+function toggleMute(){
+  muted=!muted;
+  if(localStream) localStream.getAudioTracks().forEach(t=>t.enabled=!muted);
+  render();
+}
+function closePC(id){
+  if(pcs[id]){ pcs[id].close(); delete pcs[id]; }
+  delete pendingIce[id];
+  const a=$('a_'+id); if(a) a.remove();
+}
+function syncPeers(){
+  if(!localStream) return;
+  Object.keys(pcs).forEach(id=>{ if(!voiceMembers[id]) closePC(id); });
+  Object.keys(voiceMembers).forEach(id=>{
+    if(id===myId || pcs[id]) return;
+    if(myId<id) makeOffer(id);  // yang id-nya lebih kecil yang mengirim offer
+  });
+}
+function getPC(id){
+  if(pcs[id]) return pcs[id];
+  const pc=new RTCPeerConnection(ICE);
+  pcs[id]=pc;
+  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+  pc.ontrack=e=>{
+    let a=$('a_'+id);
+    if(!a){ a=document.createElement('audio'); a.id='a_'+id; a.autoplay=true; document.body.appendChild(a); }
+    a.srcObject=e.streams[0];
+  };
+  pc.onicecandidate=e=>{ if(e.candidate) sendSig(id,'ice',e.candidate.toJSON()); };
+  return pc;
+}
+async function makeOffer(id){
+  const pc=getPC(id);
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  sendSig(id,'offer',{type:offer.type,sdp:offer.sdp});
+}
+function sendSig(to,type,data){
+  push(ref(db,`rooms/${code}/signals/${to}`),{from:myId,type,data});
+}
+async function flushIce(from){
+  const pc=pcs[from];
+  (pendingIce[from]||[]).forEach(c=>pc.addIceCandidate(c).catch(()=>{}));
+  pendingIce[from]=[];
+}
+async function handleSignal({from,type,data}){
+  if(!localStream) return;
+  if(type==='ice'){
+    const pc=pcs[from];
+    if(!pc||!pc.remoteDescription){ (pendingIce[from]??=[]).push(data); return; }
+    pc.addIceCandidate(data).catch(()=>{});
+    return;
+  }
+  const pc=getPC(from);
+  if(type==='offer'){
+    await pc.setRemoteDescription(data);
+    await flushIce(from);
+    const ans=await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    sendSig(from,'answer',{type:ans.type,sdp:ans.sdp});
+  } else if(type==='answer'){
+    await pc.setRemoteDescription(data);
+    await flushIce(from);
+  }
+}
+
+/* ---------- wheel ---------- */
+function checkSpin(){
+  const s=R.spin; if(!s||s.id===lastSpinId) return;
+  const first=lastSpinId===null; lastSpinId=s.id;
+  if(first){ angle=s.target; return; }
+  animate(s.list.split(','),angle,s.target);
+}
+function animate(ids,from,to){
+  const dur=4000; let t0=null;
+  const f=t=>{
+    if(t0===null) t0=t;
+    const k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3);
+    angle=from+(to-from)*e;
+    drawWheel(ids);
+    if(k<1) requestAnimationFrame(f);
+  };
+  requestAnimationFrame(f);
+}
+function drawWheel(ids){
+  const c=$('wheel'); if(!c||!ids||!ids.length) return;
+  const ctx=c.getContext('2d'), R0=150, seg=TWO/ids.length;
+  ctx.clearRect(0,0,300,300);
+  ids.forEach((id,i)=>{
+    const p=byId(id)||{name:'?',color:'#555'};
+    const s=i*seg+angle, e=s+seg;
+    ctx.beginPath(); ctx.moveTo(150,150); ctx.arc(150,150,R0,s,e); ctx.closePath();
+    ctx.fillStyle=p.color; ctx.fill();
+    ctx.strokeStyle='#000'; ctx.lineWidth=2; ctx.stroke();
+    ctx.save(); ctx.translate(150,150); ctx.rotate(s+seg/2);
+    ctx.fillStyle=(p.color==='#f5f5f5'||p.color==='#e0b15a')?'#111':'#fff';
+    ctx.font='bold 15px system-ui'; ctx.textAlign='right';
+    ctx.fillText(p.name.slice(0,10),R0-14,5); ctx.restore();
+  });
+  ctx.beginPath(); ctx.arc(150,150,14,0,TWO); ctx.fillStyle='#e0b15a'; ctx.fill();
+}
+
+showHome();
+</script>
+</body>
+</html>
